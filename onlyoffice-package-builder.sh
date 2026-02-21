@@ -41,8 +41,9 @@ BINARIES_ONLY="false"
 DEB_ONLY="false"
 
 UPSTREAM_ORGANIZATION="ONLYOFFICE"
+BUILD_TOOLS_ORGANIZATION="lnkpaulo"
 
-SERVER_CUSTOM_COMMITS="ebb7f5a24961c292631cc5634c3905fc64265074"
+SERVER_CUSTOM_COMMITS="32148d1d00baacdd2915fd2dc5918e219d6990cf"
 WEB_APPS_CUSTOM_COMMITS="184ed06e7a2355ef67606c9d1054e83eda7be768"
 
 # Check the arguments.
@@ -215,7 +216,7 @@ build_oo_binaries() {
     --depth=1 \
     --recursive \
     --branch ${_UPSTREAM_TAG} \
-    https://github.com/${UPSTREAM_ORGANIZATION}/build_tools.git \
+    https://github.com/${BUILD_TOOLS_ORGANIZATION}/build_tools.git \
     build_tools
   # Ignore detached head warning
   cd build_tools
