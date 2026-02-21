@@ -1,80 +1,153 @@
 # OnlyOffice Document Server — Unlimited Connections
 
-Builds [OnlyOffice Document Server](https://github.com/ONLYOFFICE/DocumentServer) from **official source** with the 20-connection limit removed.
+Builds [OnlyOffice Document Server](https://github.com/ONLYOFFICE/DocumentServer) v9.2.1.8 from official source with the 20-connection limit removed, using GitHub Actions via [btactic's package builder](https://github.com/btactic-oo/unlimited-onlyoffice-package-builder).
 
 ## What this does
 
-The OnlyOffice Community Edition has a hardcoded limit of 20 concurrent connections, defined in `server/Common/sources/constants.js`:
+OnlyOffice Community Edition has hardcoded limits in `server/Common/sources/constants.js`:
 
 ```js
 exports.LICENSE_CONNECTIONS = 20;
+exports.LICENSE_USERS = 3;
 ```
 
-This builder compiles OnlyOffice from official source with that constant changed to `999999`, then packages it as a `.deb` and optionally a Docker image.
+This toolbox patches those constants to `99999`, enables mobile editing, and produces a `.deb` package via GitHub Actions — no local build environment required.
 
 ## Legal
 
-This modification is permitted under [AGPL v3](https://www.gnu.org/licenses/agpl-3.0.html), as confirmed by OnlyOffice: [ONLYOFFICE/DocumentServer#3017](https://github.com/ONLYOFFICE/DocumentServer/issues/3017).
+Permitted under [AGPL v3](https://www.gnu.org/licenses/agpl-3.0.html), as confirmed by OnlyOffice in [issue #3017](https://github.com/ONLYOFFICE/DocumentServer/issues/3017). Per AGPL v3, this repository contains the full build scripts to reproduce the modified software.
 
-Per AGPL v3 requirements, this repository contains the build scripts and instructions to reproduce the modified software. The source code is available from the official ONLYOFFICE repositories.
+---
 
-## Prerequisites
+## Architecture
 
-- Docker with **16GB+ RAM** available
-- **50GB+ free disk space**
-- Git
+The build runs entirely on **GitHub Actions** using the `lnkpaulo` forks:
 
-No forks needed — the build script clones directly from the official ONLYOFFICE repositories and applies patches locally.
+| Fork | Purpose |
+|---|---|
+| `lnkpaulo/unlimited-onlyoffice-package-builder` | Workflow + builder script (forked from btactic) |
+| `lnkpaulo/server` | OnlyOffice server with unlimited connections patch |
+| `lnkpaulo/web-apps` | OnlyOffice web apps with mobile editing enabled |
+| `lnkpaulo/build_tools` | Build system with Node.js 20, Qt and npm fixes |
 
-## Usage
+The workflow is triggered by pushing an annotated tag matching `builds-debian-11/*` to `lnkpaulo/unlimited-onlyoffice-package-builder`. It produces a `.deb` artifact uploaded to the GitHub release.
 
-### Build the .deb package
+---
 
-```bash
-# Build latest version (~2.5 hours)
-./build.sh
+## Repository contents
 
-# Build specific version
-./build.sh 9.2.1 8
+```
+.builder/                         ← fork of lnkpaulo/unlimited-onlyoffice-package-builder
+  onlyoffice-package-builder.sh   ← builder script (points to lnkpaulo forks)
+  .github/workflows/
+    build-release-debian-11.yml   ← GitHub Actions workflow
+setup-forks.sh                    ← (one-time) patches server and web-apps forks
+apply-fixes-to-forks.sh           ← (re-run when needed) patches build_tools fork
 ```
 
-Output: `output/onlyoffice-documentserver_<version>.deb`
+---
 
-### Build the Docker image
+## How to use
+
+### Prerequisites
+
+- GitHub account `lnkpaulo` with forks of:
+  - `ONLYOFFICE/server`
+  - `ONLYOFFICE/web-apps`
+  - `ONLYOFFICE/build_tools`
+  - `btactic-oo/unlimited-onlyoffice-package-builder`
+- GitHub PAT with `repo` + `workflow` scopes (classic) or Contents + Workflows (fine-grained)
+- Local clones of `server` and `web-apps` at `v9.2.1.8` inside `.build/`
+
+### Step 1 — Apply source patches (once)
+
+Patches `LICENSE_CONNECTIONS`, `LICENSE_USERS` in `lnkpaulo/server` and enables mobile editing in `lnkpaulo/web-apps`:
 
 ```bash
-# Build .deb and Docker image in one step
-./build.sh 9.2.1 8 --docker
+./setup-forks.sh
 ```
 
-### Deploy
-
-Replace the image in your deployment script:
+After it runs, copy the printed commit SHAs into `.builder/onlyoffice-package-builder.sh`:
 
 ```bash
-# In your onlyoffice.sh or docker-compose.yml
-DS_IMAGE="trendaiq/onlyoffice-ds:latest"
+SERVER_CUSTOM_COMMITS="<sha from setup-forks.sh>"
+WEB_APPS_CUSTOM_COMMITS="<sha from setup-forks.sh>"
 ```
 
-## How it works
+### Step 2 — Apply build system patches (once, or after upstream changes)
 
-1. Clones official [ONLYOFFICE/server](https://github.com/ONLYOFFICE/server) at the release tag
-2. Patches `Common/sources/constants.js` via `sed` (`LICENSE_CONNECTIONS=999999`)
-3. Clones official [ONLYOFFICE/web-apps](https://github.com/ONLYOFFICE/web-apps) and enables mobile editing
-4. Clones official [ONLYOFFICE/build_tools](https://github.com/ONLYOFFICE/build_tools)
-5. Compiles everything inside Docker using ONLYOFFICE's official build system
-6. Packages the result as a `.deb` using [btactic's deb builder](https://github.com/btactic-oo/unlimited-onlyoffice-package-builder)
-7. Optionally layers the `.deb` onto the official Docker image
+Patches `lnkpaulo/build_tools` to fix the build inside GitHub Actions Docker environment:
+
+```bash
+./apply-fixes-to-forks.sh
+```
+
+This will prompt for your GitHub token interactively (never stored). It applies:
+
+| File | Fix |
+|---|---|
+| `build_tools/Dockerfile` | Install Node.js 20 via NodeSource at image build time |
+| `build_tools/tools/linux/deps.py` | Skip Node.js install (already in image) |
+| `build_tools/tools/linux/automate.py` | Fix Qt download URL (correct filename) |
+| `build_tools/scripts/build_server.py` | `npm ci` → `npm install` |
+| `build_tools/scripts/build_js.py` | `npm ci` → `npm install` |
+| `lnkpaulo/server` `package.json` | Remove `install:AdminPanel/*` scripts (ENOENT fix) |
+
+### Step 3 — Push the workflow
+
+```bash
+cd .builder
+git push origin main
+```
+
+### Step 4 — Trigger a build
+
+Push an annotated tag to `lnkpaulo/unlimited-onlyoffice-package-builder`:
+
+```bash
+cd .builder
+git tag -a "builds-debian-11/9.2.1.8-lnkpaulo-$(date +%Y%m%d-%H%M)" -m "trigger build"
+git push origin --tags
+```
+
+The GitHub Actions workflow will start automatically. Monitor it at:
+`https://github.com/lnkpaulo/unlimited-onlyoffice-package-builder/actions`
+
+### Step 5 — Download the artifact
+
+When the build completes, the `.deb` is attached to the GitHub release:
+
+```
+onlyoffice-documentserver_9.2.1-8-lnkpaulo_amd64.deb
+```
+
+---
 
 ## Patches applied
 
-| File | Change |
-|---|---|
-| `server/Common/sources/constants.js` | `LICENSE_CONNECTIONS = 20` → `999999` |
-| `server/Common/sources/constants.js` | `LICENSE_USERS = 3` → `999999` |
-| `web-apps/apps/*/mobile/src/lib/patch.jsx` | Enable mobile editing (`false` → `true`) |
+### Source patches (server / web-apps)
+
+| Repo | File | Change |
+|---|---|---|
+| `server` | `Common/sources/constants.js` | `LICENSE_CONNECTIONS = 20` → `99999` |
+| `server` | `Common/sources/constants.js` | `LICENSE_USERS = 3` → `99999` |
+| `server` | `package.json` | Remove `install:AdminPanel/*` scripts |
+| `web-apps` | `apps/*/mobile/src/lib/patch.jsx` | Enable mobile editing (`false` → `true`) |
+
+### Build system patches (build_tools)
+
+| File | Problem | Fix |
+|---|---|---|
+| `Dockerfile` | Node.js 10.19 in builder image too old | Install Node.js 20 via NodeSource |
+| `tools/linux/deps.py` | Runtime Node.js install fails in Docker (no dbus) | Skip (already in image) |
+| `tools/linux/automate.py` | Qt download URL 404 (`qt_binary_linux_amd64.7z`) | Use `qt_binary_5.9.9_gcc_64.7z` |
+| `scripts/build_server.py` | `npm ci` fails with old `lockfileVersion` | Use `npm install` |
+| `scripts/build_js.py` | `npm ci` fails with old `lockfileVersion` | Use `npm install` |
+
+---
 
 ## Credits
 
 - [ONLYOFFICE](https://github.com/ONLYOFFICE) — the software itself
-- [btactic](https://github.com/btactic-oo/unlimited-onlyoffice-package-builder) — deb packaging methodology
+- [btactic](https://github.com/btactic-oo/unlimited-onlyoffice-package-builder) — deb packaging methodology and GitHub Actions workflow
+- [thomisus](https://github.com/thomisus/build_tools) — Qt filename fix discovery
