@@ -1,0 +1,9 @@
+# Build artifacts
+.build/
+.cache/
+output/
+docker/*.deb
+
+# OS
+.DS_Store
+Thumbs.db
