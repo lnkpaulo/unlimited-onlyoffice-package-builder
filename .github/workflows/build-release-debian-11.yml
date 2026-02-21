@@ -97,7 +97,7 @@ jobs:
       - name: Get tgz release filename
         id: deb-release
         run: |
-          RELEASE_DEB=$(find "${{ github.workspace }}" -name "onlyoffice-documentserver_${{ steps.get-product-version.outputs.product-version }}-${{ steps.get-build-number.outputs.build-number }}${{ env.DEBIAN_PACKAGE_SUFFIX }}_amd64.deb" -type f)
+          RELEASE_DEB=$(find / -name "onlyoffice-documentserver_${{ steps.get-product-version.outputs.product-version }}-${{ steps.get-build-number.outputs.build-number }}${{ env.DEBIAN_PACKAGE_SUFFIX }}_amd64.deb" -type f 2>/dev/null | head -1)
           RELEASE_SHORT_DEB=$(basename ${RELEASE_DEB})
           echo "filename=${RELEASE_DEB}" >> $GITHUB_OUTPUT
           echo "shortfilename=${RELEASE_SHORT_DEB}" >> $GITHUB_OUTPUT
