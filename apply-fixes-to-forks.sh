@@ -3,10 +3,13 @@
 # Apply all build fixes to lnkpaulo forks so GitHub Actions can build v9.2.1.8
 #
 # Fixes applied:
-#   server/package.json      — remove install:AdminPanel/* scripts (ENOENT fix)
-#   build_tools/deps.py      — install Node.js 20 (not broken v16 NodeSource URL)
+#   server/package.json         — remove install:AdminPanel/* scripts (ENOENT fix)
+#   build_tools/Dockerfile      — install Node.js 20 at image build time
+#   build_tools/deps.py         — skip Node.js install (already in image)
+#   build_tools/automate.py     — fix Qt download URL (correct filename)
+#   build_tools/build_server.py — skip AdminPanel and document-server-integration
 #   build_tools/build_server.py — npm ci → npm install
-#   build_tools/build_js.py  — npm ci → npm install
+#   build_tools/build_js.py     — npm ci → npm install
 #
 # Run as: sudo ./apply-fixes-to-forks.sh
 # ---------------------------------------------------------------------------
@@ -206,11 +209,48 @@ else:
     print("  WARNING: could not find install_qt_prebuild() — already patched or pattern changed")
 PYEOF
 
-# ── Fix 4: build_server.py — npm ci → npm install ───────────────────────────
-echo "  Patching scripts/build_server.py (npm ci → npm install)..."
+# ── Fix 4: build_server.py — npm ci → npm install + skip AdminPanel ─────────
+echo "  Patching scripts/build_server.py (npm ci → npm install + skip AdminPanel)..."
 sed -i 's/"npm", \["ci"\]/"npm", ["install"]/g' scripts/build_server.py
+python3 - <<'PYEOF'
+with open("scripts/build_server.py") as f:
+    content = f.read()
+changes = []
 
-# ── Fix 4: build_js.py — npm ci → npm install ───────────────────────────────
+# Skip AdminPanel — not present in Community Edition
+old1 = '  base.cmd_in_dir(server_dir + "/AdminPanel/server", "pkg", [".", "-t", pkg_target, "-o", "adminpanel"])'
+new1 = '  # AdminPanel skipped — not present in Community Edition\n  # base.cmd_in_dir(server_dir + "/AdminPanel/server", "pkg", [".", "-t", pkg_target, "-o", "adminpanel"])'
+if old1 in content:
+    content = content.replace(old1, new1)
+    changes.append("AdminPanel pkg step skipped")
+
+# Skip document-server-integration example — not cloned in btactic builder
+old2 = (
+  '  example_dir = base.get_script_dir() + "/../../document-server-integration/web/documentserver-example/nodejs"\n'
+  '  base.delete_dir(example_dir  + "/node_modules")\n'
+  '  base.cmd_in_dir(example_dir, "npm", ["install"])\n'
+  '  base.cmd_in_dir(example_dir, "pkg", [".", "-t", pkg_target, "-o", "example"])'
+)
+new2 = (
+  '  # document-server-integration example skipped — not cloned in this build\n'
+  '  # example_dir = base.get_script_dir() + "/../../document-server-integration/web/documentserver-example/nodejs"\n'
+  '  # base.delete_dir(example_dir  + "/node_modules")\n'
+  '  # base.cmd_in_dir(example_dir, "npm", ["install"])\n'
+  '  # base.cmd_in_dir(example_dir, "pkg", [".", "-t", pkg_target, "-o", "example"])'
+)
+if old2 in content:
+    content = content.replace(old2, new2)
+    changes.append("document-server-integration example skipped")
+
+if changes:
+    with open("scripts/build_server.py", "w") as f:
+        f.write(content)
+    print("  build_server.py patched:", ", ".join(changes))
+else:
+    print("  (build_server.py already patched or patterns not found)")
+PYEOF
+
+# ── Fix 5: build_js.py — npm ci → npm install ───────────────────────────────
 echo "  Patching scripts/build_js.py (npm ci → npm install)..."
 sed -i 's/return base\.cmd_in_dir(directory, "npm", \["ci"\])/return base.cmd_in_dir(directory, "npm", ["install"])/g' scripts/build_js.py
 sed -i 's/base\.cmd("npm", \["ci"\])/base.cmd("npm", ["install"])/g' scripts/build_js.py
@@ -220,12 +260,14 @@ git add Dockerfile tools/linux/deps.py tools/linux/automate.py scripts/build_ser
 if git diff --cached --quiet; then
   echo "  (no changes needed in build_tools)"
 else
-  git commit -m "fix: Node.js 20, correct Qt filename, npm ci to npm install
+  git commit -m "fix: Node.js 20, correct Qt filename, npm ci to npm install, skip AdminPanel
 
 - Dockerfile: install Node.js 20 + yarn/grunt-cli/pkg at image build time
 - deps.py: skip nodejs block (already installed in image)
 - automate.py: fix Qt download URL (qt_binary_linux_amd64.7z is 404,
   use qt_binary_5.9.9_gcc_64.7z which exists in ONLYOFFICE-data LFS)
+- build_server.py: skip AdminPanel/server pkg step (not in Community Edition)
+- build_server.py: skip document-server-integration example (not cloned)
 - build_server.py: npm ci -> npm install (old lockfileVersion)
 - build_js.py: npm ci -> npm install"
 fi
